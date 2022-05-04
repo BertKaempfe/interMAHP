@@ -24,17 +24,12 @@ library(tidyverse)
 ##Mortality data base----
 #::::::::::::::::::::::#
 
-
-#categorization of deaths
-criterios_inter_mahp <-readxl::read_excel("C:\\Users\\Bert\\Desktop\\MINSAL\\InterMAHP\\InterMAHP PAHO Workshop, Mortality enumeration.xlsx")
-Hmisc::describe(criterios_inter_mahp)
-
-
 ####loading the latest deaths database------
 
 #It requires the files to be unzipped 
 #asume que todas las bases están descomprimidas
 
+#name the folder in your computer
 folder <- "where_your_files_are" 
 
 
