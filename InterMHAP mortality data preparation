@@ -1,0 +1,447 @@
+#:::::::::::::::::::::::::::::::::::::::#
+#InterMHAP mortality data preparation----
+#:::::::::::::::::::::::::::::::::::::::#
+#2022
+#Bert Kaempfe Vasquez
+#DIPRECE Salud Mental, Subsecretaría Salud Pública, Ministerio de Salud de Chile MINSAL
+#Undersecretary of Public Health, Chilean Health Ministry, MINSAL
+
+#updated Chilean mortality databases are publicly available at
+#https://deis.minsal.cl/ 
+#menu "datos abiertos"     #open data
+#file "Defunciones por Causa (actualización semanal)"  #Defunction by cause (weekly updated)
+
+
+#loading the packages
+library(tidyverse)
+
+
+#:::::::::::::::::::::::#
+##Mortality data base----
+#::::::::::::::::::::::#
+
+
+#categorization of deaths
+criterios_inter_mahp <-readxl::read_excel("C:\\Users\\Bert\\Desktop\\MINSAL\\InterMAHP\\InterMAHP PAHO Workshop, Mortality enumeration.xlsx")
+Hmisc::describe(criterios_inter_mahp)
+
+
+####loading the latest deaths database------
+
+#It requires the files to be unzipped 
+#asume que todas las bases están descomprimidas
+
+folder <- "where_your_files_are" 
+
+
+#List of the unzipped files
+#para saber el nombre de la carpeta no comprimida, donde está el archivo
+lista_carpetas_bases_defunciones <- 
+ list.dirs(path = folder, 
+            full.names = FALSE,  #FALSE solo da el nombre de la carpeta y no la ubicación completa
+            recursive = TRUE)
+
+#it presumes that all databases have 'DEFUNCIONES_FUENTE_DEIS_2016_2022' in their titles
+lista_carpetas_bases_defunciones_validos <- 
+ lista_carpetas_bases_defunciones[grep("DEFUNCIONES_FUENTE_DEIS_2016_2022",lista_carpetas_bases_defunciones)] 
+  
+
+#Chooses the newest file
+#deja el archivo con la última fecha 
+file_to_use <- 
+  stringr::str_subset(lista_carpetas_bases_defunciones_validos,(  #para quedarse solo con un archivo
+    stringr::str_remove(lista_carpetas_bases_defunciones_validos, "DEFUNCIONES_FUENTE_DEIS_2016_2022_") %>% #para dejar solo la fecha 
+      max(lubridate::dmy()) #escoje la última fecha
+  ))
+
+
+dim(base_mhap<-    read.csv(paste0(folder,file_to_use,"/",file_to_use,".csv"),
+                     sep=";",
+                     header=FALSE, 
+                     encoding="UTF-8-BOM",   ##muy importante el BOM  encoding  
+                     stringsAsFactors=FALSE 
+))    
+
+#File's dictionary
+diccionario <- "Diccionario de Datos BBDD-COVID19 liberada"
+nombre_columnas<- readxl::read_excel(paste0(folder,file_to_use,"/",diccionario,".xlsx"),
+                                     range = "C4:C35")
+dim(nombre_columnas)
+nombre_columnas2 <-  nombre_columnas %>% 
+  filter(!is.na(nombre_columnas)) %>%   #filtra las filas que están demás
+  pull("Nombre de la variable")  #con 'as.list(nombre_columnas)' no funciona bien  
+
+class(nombre_columnas2)
+ifelse(length(nombre_columnas2)==27, "Ok", "not Ok")
+#assigns columns names
+names(base_mhap)<- nombre_columnas2 %>% janitor::make_clean_names() #renombra todas las columnas con la información del Diccionario de Variables
+
+
+#Age groups
+#unique(criterios_inter_mahp$AGE_GROUP)
+
+
+base_mhap <- base_mhap %>% 
+    rename(diag_causa_muerte=diag1) %>% 
+    mutate(edad_cat_mhap =case_when(
+                                  edad_cant %in% 0:14    ~"00-14",
+                                  edad_cant %in% 15:24   ~"15-24",
+                                  edad_cant %in% 25:34   ~"25-34",
+                                  edad_cant %in% 35:44   ~"35-44",
+                                  edad_cant %in% 45:54   ~"45-54",
+                                  edad_cant %in% 55:64   ~"55-64",
+                                  edad_cant %in% 55:64   ~"55-64",
+                                  edad_cant %in% 65:74   ~"65-74",
+                                  edad_cant %in% 75:84   ~"75-84",
+                                  edad_cant>84           ~"85+"),
+           edad_cat_ens10 =case_when(
+                                  edad_cant<15           ~"a00-14",
+                                  edad_cant %in% 15:24   ~"a15-24",
+                                  edad_cant %in% 25:44   ~"a25-44",
+                                  edad_cant %in% 45:64   ~"a45-64",
+                                  edad_cant>64           ~"a65+"), 
+          diag_trunc=tolower(str_sub(diag_causa_muerte,start=1, end=3)), #deja los diagnósticos solo con dos dígitos
+          diag_causa_muerte=tolower(diag_causa_muerte),
+          diag_trunc_2=tolower(str_sub(diag2,start=1, end=3)))
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::#
+##Categorization of mortality database in ICD-10 large groups----
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::#
+
+# (1) Communicable diseases */
+# (2) Cancer */
+# (3) Endocrine Conditions */
+# (4) Neuropsychiatric Conditions */
+# (5) Cardiovascular Conditions */
+# (6) Digestive Conditions */
+# (7) Motor vehicle collisions */
+# (8) Unintentional injuries */
+# (9) Intentional injuries */
+
+#
+#dput(paste0("j",seq(9,22)))
+#dput(sprintf("x%02d", 40:44))
+#dput(sprintf("i%03d", 103:109)) 
+
+base_mhap <- 
+base_mhap %>% 
+  mutate(
+  diag2=tolower(diag2),
+  diag_trunc=tolower(str_sub(diag_causa_muerte,start=1, end=3)),  #deja los diagnósticos solo con dos dígitos
+  IM=case_when(
+    
+# (1) Communicable diseases */
+   diag_trunc %in% c("a15", "a16", "a17", "a18", "a19")                                     ~"(1).(1)",
+   diag_trunc %in% c("b20", "b21", "b22", "b23", "b24")                                     ~"(1).(2)", 
+   diag_trunc %in% c("j09", "j10", "j11", "j12", "j13", 
+                                  "j14", "j15", "j16", "j17", "j18", "j19", "j20", 
+                                  "j21", "j22")                                             ~"(1).(3)",
+# (2) Cancer */
+   diag_trunc %in% c("c00", "c01", "c02", "c03", "c04", "c05","c08","c09","c10", 
+                                                            "c12","c13","c14")               ~"(2).(1)",
+   diag_causa_muerte %in% "D000"                                                             ~"(2).(1)",
+   diag_trunc %in%  "c15"                                                                    ~"(2).(2)",
+   diag_causa_muerte %in% "D001"                                                             ~"(2).(2)",
+   diag_trunc %in%  c("c18", "c19", "c20", "c21")                                            ~"(2).(3)",
+   diag_causa_muerte %in% c("d010", "d011", "d012", "d013", "d014")                          ~"(2).(3)",
+   diag_trunc %in%                "c22"                                                      ~"(2).(4)",
+   diag_causa_muerte %in%         "d015"                                                     ~"(2).(4)",  
+   diag_trunc %in%                "c25"                                                      ~"(2).(5)",
+   diag_causa_muerte %in%         "d017"                                                     ~"(2).(5)",  
+   diag_trunc %in%                "c32"                                                      ~"(2).(6)",
+   diag_causa_muerte %in%         "d020"                                                     ~"(2).(6)",  
+   diag_trunc %in%               c("c50","d05")                                              ~"(2).(7)", 
+  
+# (3) Endocrine Conditions */  
+   diag_trunc %in%  c("e11","e13","e14")                                                    ~"(3).(1)",  
+   diag_causa_muerte %in%         "e244"                                                    ~"(3).(2)",  
+# (4) Neuropsychiatric Conditions */
+   diag_causa_muerte %in%         "f100"                                                    ~"(4).(1)",  
+   diag_causa_muerte %in%         c("f103", "f104", "f105", "f106", "f107", "f108", "f109") ~"(4).(1)", 
+   diag_causa_muerte %in%         "f101"                                                    ~"(4).(2)",  
+   diag_causa_muerte %in%         "f102"                                                    ~"(4).(3)",  
+   diag_causa_muerte %in%         "g312"                                                    ~"(4).(4)",  
+   diag_trunc %in%                c("g40","g41")                                            ~"(4).(5)",  
+   diag_causa_muerte %in%         "g621"                                                    ~"(4).(6)",  
+   diag_causa_muerte %in%         "g721"                                                    ~"(4).(7)",  
+# (5) Cardiovascular Conditions */
+   diag_trunc %in%                c("i10", "i11", "i12", "i13", "i14", "i15")              ~"(5).(1)",  
+   diag_trunc %in%                c("i20", "i21", "i22", "i23", "i24", "i25")              ~"(5).(2)", 
+   diag_causa_muerte %in%         "i426"                                                   ~"(5).(3)",  
+   diag_trunc %in%                c("i47", "i48", "i49")                                   ~"(5).(4)",  
+   diag_trunc %in%                c("i60", "i61", "i62")                                   ~"(5).(5)",  
+   diag_causa_muerte %in%         c("i690", "i691", "i692")                                ~"(5).(5)",  
+   diag_trunc %in%                c("i63", "i64", "i65", "i66", "i67")                     ~"(5).(6)",  
+   diag_causa_muerte %in%         c("i693", "i694")                                        ~"(5).(6)",
+   diag_trunc %in%                "i85"                                                    ~"(5).(7)",   
+#/* (6) Digestive Conditions */
+   diag_causa_muerte %in%         "k292"                                                    ~"(6).(1)",
+   diag_trunc %in%                c("k70", "k72")                                           ~"(6).(2)", 
+   diag_causa_muerte %in%         c("k850", "k851", "k858","k859")                          ~"(6).(3)",
+   diag_causa_muerte %in%         c("k861", "k862", "k863","k864","k865", "k866", "k867",
+                                    "k868","k869")                                          ~"(6).(4)", 
+   diag_causa_muerte %in%         c("k852", "k860")                                         ~"(6).(5)", 
+#  /* (7) Motor vehicle collisions */
+#warning, they are external causes of death. In the mortality database are registered in the column 'diag2'
+#ojo, son causas de muertes externas. En la base de fallecimientos se usa diag2
+ diag2 %in%         
+  c("v021", "v029", "v031", "v039", "v041", "v049", "v092", "v093",
+   "v123", "v124", "v125", "v129",
+   "v133", "v134", "v135", "v139",
+   "v143", "v144", "v145", "v149",
+   "v194", "v195", "v196", "v199",
+   "v203", "v204", "v205", "v209",
+   "v213", "v214", "v215", "v219",
+   "v223", "v224", "v225", "v229",
+   "v233", "v234", "v235", "v239",
+   "v243", "v244", "v245", "v249",
+   "v253", "v254", "v255", "v259",
+   "v263", "v264", "v265", "v269",
+   "v273", "v274", "v275", "v279",
+   "v283", "v284", "v285", "v289",
+   "v294", "v295", "v296", "v299",#
+   "v304", "v305", "v306", "v307", "v309",
+   "v314", "v315", "v316", "v317", "v319",
+   "v324", "v325", "v326", "v327", "v329",
+   "v334", "v335", "v336", "v337", "v339",
+   "v344", "v345", "v346", "v347", "v349",
+   "v354", "v355", "v356", "v357", "v359",
+   "v364", "v365", "v366", "v367", "v369",
+   "v374", "v375", "v376", "v377", "v379",
+   "v384", "v385", "v386", "v387", "v389",
+   "v394", "v395", "v396", "v399",
+   "v404", "v405", "v406", "v407", "v409",
+   "v414", "v415", "v416", "v417", "v419",
+   "v424", "v425", "v426", "v427", "v429",
+   "v434", "v435", "v436", "v437", "v439",
+   "v444", "v445", "v446", "v447", "v449",
+   "v454", "v455", "v456", "v457", "v459",
+   "v464", "v465", "v466", "v467", "v469",
+   "v474", "v475", "v476", "v477", "v479",
+   "v484", "v485", "v486", "v487", "v489",
+   "v494", "v495", "v496", "v499",
+   "v504", "v505", "v506", "v507", "v509",
+   "v514", "v515", "v516", "v517", "v519",
+   "v524", "v525", "v526", "v527", "v529",
+   "v534", "v535", "v536", "v537", "v539",
+   "v544", "v545", "v546", "v547", "v549",
+   "v554", "v555", "v556", "v557", "v559",
+   "v564", "v565", "v566", "v567", "v569",
+   "v574", "v575", "v576", "v577", "v579",
+   "v584", "v585", "v586", "v587", "v589",
+   "v594", "v595", "v596", "v599",
+   "v604", "v605", "v606", "v607", "v609",
+   "v614", "v615", "v616", "v617", "v619",
+   "v624", "v625", "v626", "v627", "v629",
+   "v634", "v635", "v636", "v637", "v639",
+   "v644", "v645", "v646", "v647", "v649",
+   "v654", "v655", "v656", "v657", "v659",
+   "v664", "v665", "v666", "v667", "v669",
+   "v674", "v675", "v676", "v677", "v679",
+   "v684", "v685", "v686", "v687", "v689",
+   "v694", "v695", "v696", "v699",
+   "v704", "v705", "v706", "v707", "v709",
+   "v714", "v715", "v716", "v717", "v719",
+   "v724", "v725", "v726", "v727", "v729",
+   "v734", "v735", "v736", "v737", "v739",
+   "v744", "v745", "v746", "v747", "v749",
+   "v754", "v755", "v756", "v757", "v759",
+   "v764", "v765", "v766", "v767", "v769",
+   "v774", "v775", "v776", "v777", "v779",
+   "v784", "v785", "v786", "v787", "v789",
+   "v794", "v795", "v796", "v799",
+   "v803", "v804", "v805", "v811", "v821",
+   "v830", "v831", "v832", "v833", "v834",
+   "v840", "v841", "v842", "v843", "v844",
+   "v850", "v851", "v852", "v853", "v854",
+   "v860", "v861", "v863",
+   "v870", "v871", "v872", "v873", "v874", "v875", "v876", "v877","v878","v879",
+   "v892", "v893", "v899", "y850")                                                         ~"(7).(1)", 
+
+diag2 %in%         
+c("v010", "v011", "v019", "v020", "v030", "v040", "v050", "v051", 
+  "v059", "v060", "v061", "v069", "v090", "v091", "v099", "v100", 
+  "v101", "v102", "v103", "v104", "v105", "v109", "v110", "v111", 
+  "v112", "v113", "v114", "v115", "v119", "v120", "v121", "v122", 
+  "v130", "v131", "v132", "v140", "v141", "v142", "v150", "v151", 
+  "v152", "v153", "v154", "v155", "v159", "v160", "v161", "v162", 
+  "v163", "v164", "v165", "v169", "v170", "v171", "v172", "v173", 
+  "v174", "v175", "v179", "v180", "v181", "v182", "v183", "v184", 
+  "v185", "v189", "v190", "v191", "v192", "v193", "v198", "v200", 
+  "v201", "v202", "v210", "v211", "v212", "v220", "v221", "v222", 
+  "v230", "v231", "v232", "v240", "v241", "v242", "v250", "v251", 
+  "v252", "v260", "v261", "v262", "v270", "v271", "v272", "v280", 
+  "v281", "v282", "v290", "v291", "v292", "v293", "v298", "v300", 
+  "v301", "v302", "v303", "v310", "v311", "v312", "v313", "v320", 
+  "v321", "v322", "v323", "v330", "v331", "v332", "v333", "v340", 
+  "v341", "v342", "v343", "v350", "v351", "v352", "v353", "v360", 
+  "v361", "v362", "v363", "v370", "v371", "v372", "v373", "v380", 
+  "v381", "v382", "v383", "v390", "v391", "v392", "v393", "v398", 
+  "v400", "v401", "v402", "v403", "v410", "v411", "v412", "v413", 
+  "v420", "v421", "v422", "v423", "v430", "v431", "v432", "v433", 
+  "v440", "v441", "v442", "v443", "v450", "v451", "v452", "v453", 
+  "v460", "v461", "v462", "v463", "v470", "v471", "v472", "v473", 
+  "v480", "v481", "v482", "v483", "v490", "v491", "v492", "v493", 
+  "v498", "v500", "v501", "v502", "v503", "v510", "v511", "v512", 
+  "v513", "v520", "v521", "v522", "v523", "v530", "v531", "v532", 
+  "v533", "v540", "v541", "v542", "v543", "v550", "v551", "v552", 
+  "v553", "v560", "v561", "v562", "v563", "v570", "v571", "v572", 
+  "v573", "v580", "v581", "v582", "v583", "v590", "v591", "v592", 
+  "v593", "v598", "v600", "v601", "v602", "v603", "v610", "v611", 
+  "v612", "v613", "v620", "v621", "v622", "v623", "v630", "v631", 
+  "v632", "v633", "v640", "v641", "v642", "v643", "v650", "v651", 
+  "v652", "v653", "v660", "v661", "v662", "v663", "v670", "v671", 
+  "v672", "v673", "v680", "v681", "v682", "v683", "v690", "v691", 
+  "v692", "v693", "v698", "v700", "v701", "v702", "v703", "v710", 
+  "v711", "v712", "v713", "v720", "v721", "v722", "v723", "v730", 
+  "v731", "v732", "v733", "v740", "v741", "v742", "v743", "v750", 
+  "v751", "v752", "v753", "v760", "v761", "v762", "v763", "v770", 
+  "v771", "v772", "v773", "v780", "v781", "v782", "v783", "v790", 
+  "v791", "v792", "v793", "v798", "v800", "v801", "v802", "v806", 
+  "v807", "v808", "v809", "v810", "v812", "v813", "v814", "v815", 
+  "v816", "v817", "v818", "v819", "v820", "v822", "v823", "v824", 
+  "v825", "v826", "v827", "v828", "v829", "v835", "v836", "v837", 
+  "v839", "v845", "v846", "v847", "v849", "v855", "v856", "v857", 
+  "v859", "v862", "v864", "v865", "v866", "v867", "v869", "v880", 
+  "v881", "v882", "v883", "v884", "v885", "v886", "v887", "v888", 
+  "v889", "v890", "v891", "v900", "v901", "v902", "v903", "v904", 
+  "v905", "v906", "v907", "v908", "v909", "v910", "v911", "v912", 
+  "v913", "v914", "v915", "v916", "v917", "v918", "v919", "v920", 
+  "v921", "v922", "v923", "v924", "v925", "v926", "v927", "v928", 
+  "v929", "v930", "v931", "v932", "v933", "v934", "v935", "v936", 
+  "v937", "v938", "v939", "v940", "v941", "v942", "v943", "v944", 
+  "v945", "v946", "v947", "v948", "v949", "v950", "v951", "v952", 
+  "v953", "v954", "v958", "v959", "v960", "v961", "v962", "v968", 
+  "v969", "v970", "v971", "v972", "v973", "v978", "v98x", "v99x")                            ~"(8).(6)",
+
+#  /* (8) Unintentional injuries */   #ojo se usa el diagnóstico secundario
+ diag_trunc_2 %in% c("w00", "w01", "w02", "w03", "w04", "w05", "w06", "w07", "w08", 
+                     "w09", "w10", "w11", "w12", "w13", "w14", "w15", "w16", "w17", 
+                     "w18", "w19",   #a continuación viene el único código "y"                                                                        
+                     "y30")                                                                   ~"(8).(1)",
+ diag_trunc_2 %in% c("w65", "w66", "w67", "w68", "w69", "w70", "w71", "w72", "w73", 
+                     "w74",
+                     "y21")                                                                  ~"(8).(2)",
+ diag_trunc_2 %in% c("x00", "x01", "x02", "x03", "x04", "x05", "x06", "x07", "x08", 
+                      "x09",  #a continuación viene el único código "y"
+                      "y21")                                                                 ~"(8).(3)",
+ diag_trunc_2 %in% c("x40", "x41", "x42", "x43", "x44", 
+                     "x46", "x47", "x48", "x49",   
+                     "y10", "y11", "y12", "y13", "y14", "y16", "y17", "y18","y19")           ~"(8).(4)",
+ diag_trunc_2 %in% c("x45", "y15")                                                           ~"(8).(5)",
+ diag_trunc_2 %in% c("w20", "w21", "w22", "w23", "w24", "w25", "w26", "w27", "w28", 
+                       "w29", "w30", "w31", "w32", "w33", "w34", "w35", "w36", "w37", 
+                       "w38", "w39", "w40", "w41", "w42", "w43", "w44", "w45", "w46", 
+                       "w47", "w48", "w49", "w50", "w51", "w52", "w53", "w54", "w55", 
+                       "w56", "w57", "w58", "w59", "w60", "w61", "w62", "w63", "w64",
+                       "w75", "w76", "w77", "w78", "w79", "w80", "w81", "w82", "w83", 
+                       "w84", "w85", "w86", "w87",
+                       "w92", "w93", "w99",
+                       "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x18", 
+                       "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", 
+                       "x28", "x29", "x30", "x31", "x32", "x33",
+                       "x51",
+                       "x53", "x54", "x55", "x56", "x57", "x58", "x59",
+                       "y20",
+                       "y22", "y23", "y24", "y25",
+                       "y27", "y28", "y29",
+                       "y31", "y32", "y33", "y34",
+                       "y60", "y61", "y62", "y63", "y64", "y65", "y66", "y67", "y68", 
+                       "y69",
+                       "y83","y84","y86","y88")                                            ~"(8).(6)",
+ diag2 %in%  c("y859","y872","y899")                                                       ~"(8).(6)",
+# (9) Intentional injuries */
+ diag_trunc_2 %in% c("x60", "x61", "x62", "x63", "x64",
+                     "x66", "x67", "x68", "x69")                                          ~"(9).(1)",
+ diag_trunc_2 %in% "x65"                                                                  ~"(9).(2)",
+ diag_trunc_2 %in%  c("x70", "x71", "x72", "x73", "x74", "x75", "x76", "x77", "x78", 
+                     "x79", "x80", "x81", "x82", "x83", "x84")                            ~"(9).(3)",
+ diag2 %in% "y870"                                                                        ~"(9).(3)",
+ diag_trunc_2 %in%  c("x85", "x86", "x87", "x88", "x89", "x90", "x91", "x92", "x93", 
+               "x94", "x95", "x96", "x97", "x98", "x99",
+               "y00", "y01", "y02", "y03", "y04", "y05", "y06", "y07", "y08", 
+               "y09")                                                                      ~"(9).(4)",
+  diag2 %in% "y871"                                                                        ~"(9).(4)",
+  diag_trunc_2 %in% "y35"                                                                  ~"(9).(5)",
+  diag2 %in% "y890"                                                                        ~"(9).(5)",
+ TRUE                                                                         ~"other"
+))
+
+
+#Creating "Condition_Category"  & "Condition" 
+#Para crear las variables "Condition_Category" y "Condition" 
+base_mhap <- 
+base_mhap %>% 
+  filter(!IM %in% "other") %>%
+  mutate(
+  Condition_Category=case_when( 
+      IM %in% c("(1).(1)","(1).(2)","(1).(3)")                                        ~"(1) Communicable diseases",
+      IM %in% c("(2).(1)","(2).(2)","(2).(3)","(2).(4)","(2).(5)","(2).(6)","(2).(7)")~"(2) Cancer",
+      IM %in% c("(3).(1)","(3).(2)")                                                  ~"(3) Endocrine conditions",
+      IM %in% c("(4).(1)","(4).(2)","(4).(3)","(4).(4)","(4).(5)","(4).(6)","(4).(7)")~"(4) Neuropsychiatric conditions",
+      IM %in% c("(5).(1)","(5).(2)","(5).(3)","(5).(4)","(5).(5)","(5).(6)","(5).(7)")~"(5) Cardiovascular conditions",
+      IM %in% c("(6).(1)","(6).(2)","(6).(3)","(6).(4)","(6).(5)")                    ~"(6) Digestive conditions",
+      IM %in% "(7).(1)"                                                               ~"(7) Motor vehicle collisions",
+      IM %in% c("(8).(1)","(8).(2)","(8).(3)","(8).(4)","(8).(5)","(8).(6)")          ~"(8) Unintentional injuries",
+      IM %in% c("(9).(1)","(9).(2)","(9).(3)","(9).(4)","(9).(5)")                    ~"(9) Intentional injuries"),
+Condition=case_when(
+  IM %in% "(1).(1)"~"Tuberculosis", 
+  IM %in% "(1).(2)"~"HIV", 
+  IM %in% "(1).(3)"~"Lower respiratory tract infections", 
+  IM %in% "(2).(1)"~"Oral cavity and pharynx cancer", 
+  IM %in% "(2).(2)"~"Oesaphageal cancer", 
+  IM %in% "(2).(3)"~"Colorectal cancer", 
+  IM %in% "(2).(4)"~"Liver cancer", 
+  IM %in% "(2).(5)"~"Pancreatic cancer", 
+  IM %in% "(2).(6)"~"Laryngeal cancer", 
+  IM %in% "(2).(7)"~"Breast cancer", 
+  IM %in% "(3).(1)"~"Diabetes", 
+  IM %in% "(3).(2)"~"Alcohol-induced pseudo-Cushing's syndrome",
+  IM %in% "(4).(1)"~"Alcoholic psychoses",
+  IM %in% "(4).(2)"~"Alcohol abuse",
+  IM %in% "(4).(3)"~"Alcohol dependence", 
+  IM %in% "(4).(4)"~"Degeneration of nervous system due to alcohol", 
+  IM %in% "(4).(5)"~"Epilepsy", 
+  IM %in% "(4).(6)"~"Alcoholic polyneuropathy", 
+  IM %in% "(4).(7)"~"Alcoholic myopathy", 
+  IM %in% "(5).(1)"~"Hypertension", 
+  IM %in% "(5).(2)"~"Ischaemic heart disease", 
+  IM %in% "(5).(3)"~"Alcoholic cardiomyopathy", 
+  IM %in% "(5).(4)"~"Atrial fibrillation and cardiac arrhythmia",
+  IM %in% "(5).(5)"~"Haemorrhagic stroke", 
+  IM %in% "(5).(6)"~"Ischaemic stroke", 
+  IM %in% "(5).(7)"~"Oesophageal varices", 
+  IM %in% "(6).(1)"~"Alcoholic gastritis", 
+  IM %in% "(6).(2)"~"Liver cirrhosis", 
+  IM %in% "(6).(3)"~"Acute pancreatitis", 
+  IM %in% "(6).(4)"~"Chronic pancreatitis", 
+  IM %in% "(6).(5)"~"Alcohol-induced pancreatitis", 
+  IM %in% "(7).(1)"~"Motor vehicle collisions", 
+
+  IM %in% "(8).(1)"~"Falls", 
+  IM %in% "(8).(2)"~"Drowning", 
+  IM %in% "(8).(3)"~"Fires",
+  IM %in% "(8).(4)"~"Accidental poisoning by substances other than alcohol", 
+  IM %in% "(8).(5)"~"Accidental poisoning by alcohol", 
+  IM %in% "(8).(6)"~"Other unintentional injuries", 
+
+  IM %in% "(9).(1)"~"Intentional self-poisoning by substances other than alcohol", 
+  IM %in% "(9).(2)"~"Intentional self-poisoning by alcohol", 
+  IM %in% "(9).(3)"~"Other intentional self-harm",
+  IM %in% "(9).(4)"~"Assault / homicide",
+  IM %in% "(9).(5)"~"Other intentional injury" 
+  ))
+    
+#generating the count 
+#para generar la base con el conteo
+table_mhap <- 
+  base_mhap %>% 
+  select(ano_def,glosa_sexo,edad_cat_mhap,edad_cat_ens10,Condition_Category,IM,Condition) %>% 
+  mutate(REGION="Chile",
+         glosa_sexo=recode(glosa_sexo, "Hombre" = "Male", "Mujer" = "Female")) %>% 
+  rename(
+    YEAR=ano_def,
+    GENDER=glosa_sexo,
+    AGE_GROUP=edad_cat_mhap) %>% 
+  count(REGION,YEAR,GENDER,AGE_GROUP,Condition_Category,IM,Condition) %>% 
+  rename(deaths=n)
