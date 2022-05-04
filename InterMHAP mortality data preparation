@@ -6,10 +6,14 @@
 #DIPRECE Salud Mental, Subsecretaría Salud Pública, Ministerio de Salud de Chile MINSAL
 #Undersecretary of Public Health, Chilean Health Ministry, MINSAL
 
+#this script is made for R & Rstudio, opensource programs
+#
+
 #updated Chilean mortality databases are publicly available at
 #https://deis.minsal.cl/ 
 #menu "datos abiertos"     #open data
 #file "Defunciones por Causa (actualización semanal)"  #Defunction by cause (weekly updated)
+
 
 
 #loading the packages
